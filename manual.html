@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#ecf2ea">
+<title>Cómo usar tu cartera</title>
+<style>
+:root{--bg:#ecf2ea;--card:#fff;--text:#1a2e22;--muted:#64766b;--accent:#2f6f4f;--accent-dark:#1c5c3f;--borde:rgba(28,92,63,0.12)}
+*{box-sizing:border-box;-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  line-height:1.55;padding:0 0 60px}
+.wrap{max-width:640px;margin:0 auto;padding:0 20px}
+header{background:var(--accent-dark);color:#fff;padding:54px 0 44px;margin-bottom:28px}
+header h1{margin:0 0 8px;font-size:34px;line-height:1.15;letter-spacing:-0.02em}
+header p{margin:0;color:#c9ded1;font-size:17px}
+.card{background:var(--card);border:1px solid var(--borde);border-radius:16px;padding:20px;margin-bottom:16px}
+.paso{display:flex;gap:14px;align-items:flex-start}
+.num{flex:0 0 34px;height:34px;border-radius:50%;background:var(--accent);color:#fff;
+  display:flex;align-items:center;justify-content:center;font-weight:700;font-size:17px;margin-top:2px}
+h2{margin:0 0 6px;font-size:20px;color:var(--accent-dark);letter-spacing:-0.01em}
+h3{margin:22px 0 10px;font-size:15px;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);font-weight:600}
+p{margin:0 0 10px}
+p:last-child{margin-bottom:0}
+.donde{display:inline-block;background:rgba(47,111,79,0.10);color:var(--accent-dark);
+  padding:2px 9px;border-radius:7px;font-size:14px;font-weight:600}
+.dato{background:var(--card);border:1px solid var(--borde);border-radius:16px;padding:18px 20px;margin-bottom:16px}
+.dato .k{font-size:13px;color:var(--muted);margin-bottom:2px}
+.dato .v{font-size:17px;font-weight:600;word-break:break-all}
+.nota{font-size:14px;color:var(--muted);margin-top:8px}
+.cuenta{border-top:1px solid var(--borde);padding-top:14px;margin-top:14px}
+.cuenta:first-of-type{border-top:0;padding-top:0;margin-top:0}
+.cuenta b{display:block;font-size:17px;color:var(--accent-dark);margin-bottom:2px}
+footer{text-align:center;color:var(--muted);font-size:15px;margin-top:30px}
+a{color:var(--accent-dark)}
+@media (prefers-color-scheme: dark){
+  :root{--bg:#14171a;--card:#202428;--text:#e9edf0;--muted:#95a0a8;--accent:#4fa882;--accent-dark:#6fc79f;--borde:rgba(255,255,255,0.10)}
+  header{background:#0f2a1d}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <h1>Tu cartera</h1>
+    <p>para llevar tus gastos, tus cuentas y tus metas</p>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="dato">
+    <div class="k">tu app</div>
+    <div class="v"><a href="https://rl7103405-gif.github.io/cartera-tono/">rl7103405-gif.github.io/cartera-tono</a></div>
+  </div>
+  <div class="dato">
+    <div class="k">usuario</div>
+    <div class="v">tono32sa@gmail.com</div>
+    <div class="nota">La contraseña te la paso por aparte.</div>
+  </div>
+
+  <div class="card">
+    <h2>Instálala como app</h2>
+    <p>Ábrela en Chrome, entra al menú de los tres puntitos y dale <b>“Agregar a pantalla de inicio”</b>. Te queda como cualquier otra app del celular.</p>
+    <p class="nota">Tus datos no se guardan en el teléfono: viven en la nube, así que los ves igual desde el celular y la compu.</p>
+  </div>
+
+  <h3>Para empezar</h3>
+
+  <div class="card paso">
+    <div class="num">1</div>
+    <div>
+      <h2>Llena tu perfil</h2>
+      <p><span class="donde">perfil</span></p>
+      <p>Tu nombre, tu año de nacimiento, si rentas o vives en familia, y cuánto ganas al mes.</p>
+      <p>No es de adorno: con eso la app te dice si estás ahorrando bien <b>para alguien en tu situación</b>. Si no lo llenas, esa parte te sale en genérico.</p>
+    </div>
+  </div>
+
+  <div class="card paso">
+    <div class="num">2</div>
+    <div>
+      <h2>Pon tus saldos de hoy</h2>
+      <p><span class="donde">inicio → actualizar saldos</span></p>
+      <p>Cuánto tienes ahorita en <b>BBVA</b> y en <b>efectivo</b>. Con eso arranca a contar; de ahí en adelante se actualiza sola conforme registres.</p>
+    </div>
+  </div>
+
+  <div class="card paso">
+    <div class="num">3</div>
+    <div>
+      <h2>Registra lo que gastas y lo que te entra</h2>
+      <p><span class="donde">movimientos</span></p>
+      <p>Eliges categoría, escribes el monto y dices de dónde salió: efectivo, BBVA o American Express.</p>
+      <p>¿Le picaste mal? Cada movimiento tiene un <b>lápiz ✎</b> para corregir la categoría o la nota, sin borrarlo y sin que se te cambie de mes.</p>
+    </div>
+  </div>
+
+  <div class="card paso">
+    <div class="num">4</div>
+    <div>
+      <h2>Ponte una meta</h2>
+      <p><span class="donde">metas</span></p>
+      <p>Cuánto quieres llegar a tener y para cuándo. Puedes crear varias, una por cuenta, y la app te dice cuánto te falta y si vas a tiempo.</p>
+    </div>
+  </div>
+
+  <h3>Tus cuentas</h3>
+
+  <div class="card">
+    <div class="cuenta"><b>efectivo</b>lo que traes en la bolsa</div>
+    <div class="cuenta"><b>BBVA</b>tu cuenta de banco</div>
+    <div class="cuenta"><b>American Express</b>tu tarjeta de crédito: registra ahí tus cargos y tus pagos, y te lleva la cuenta de lo que debes</div>
+    <div class="cuenta"><b>GBM</b>tus inversiones: registra lo que compras y lo que vendes, y la app le sigue el precio sola</div>
+  </div>
+
+  <h3>Dos cosas más</h3>
+
+  <div class="card">
+    <p>El <b>ojito</b> de arriba oculta todos tus montos, por si alguien se te asoma.</p>
+    <p>En <span class="donde">perfil</span> le cambias el color a la app: verde, azul, morado, arena, rosa u oscuro.</p>
+    <p>En <span class="donde">resumen</span> ves a dónde se te va el dinero, con gráficas por categoría.</p>
+  </div>
+
+  <footer>Cualquier cosa, dile a Beto.<br>Entre más la uses, más te sirve.</footer>
+
+</div>
+</body>
+</html>
