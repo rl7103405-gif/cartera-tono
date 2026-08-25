@@ -319,7 +319,7 @@ table.mini th:first-child,table.mini td:first-child{text-align:left}
 <!-- LOGIN -->
 <div class="login-screen" id="login-screen">
   <div class="login-box">
-    <div class="login-logo">su <span>cartera</span></div>
+    <div class="login-logo">tu <span>cartera</span></div>
     <div class="login-sub">ingresa para continuar</div>
     <div class="login-field"><input type="email" id="login-email" placeholder="correo" autocomplete="email"></div>
     <div class="login-field"><input type="password" id="login-pass" placeholder="contrasena" autocomplete="current-password"></div>
@@ -336,7 +336,7 @@ table.mini th:first-child,table.mini td:first-child{text-align:left}
 
 <div class="safe-top"></div>
 <nav>
-  <div class="logo">su <span>cartera</span></div>
+  <div class="logo">tu <span>cartera</span></div>
   <div class="nav-right">
     <div class="sync-dot" id="sync-dot"></div>
     <button class="logout-btn" id="privado-btn" onclick="togglePrivado()" aria-pressed="false" title="ocultar montos" aria-label="ocultar montos" style="font-size:16px;line-height:1">
@@ -1153,7 +1153,7 @@ let state = {
   revMXN:0, revSavingsBase:0, revSavingsFecha:'', revSavingsTasa:15, revNvdaShares:0,
   tarjetaDeuda:0, tarjetaMovimientos:[],
   // (sin usar) garantizada: limite de credito = deposito de garantia 1:1 (rango $250-$75,000)
-  revTdcDeuda:0, revTdcDeposito:250, revTdcMovs:[],
+  revTdcDeuda:0, revTdcDeposito:0, revTdcMovs:[],  // 0: sin tarjeta garantizada no hay deposito
   ivvPrecio:0, ivvVar:null, ivvHistory:[],
   nvdaPrecio:null, nvdaPrev:null, nvdaFecha:'', usdMxn:null, usdMxnPrev:null, usdMxnFecha:'',
   nvdaHistory:[], usdMxnHistory:[],
@@ -3123,12 +3123,14 @@ function renderDistribucion(ahorro, inversiones, disponible, garantia, nvdaPendi
   // escala monocromatica DEL TEMA (tokens --d1..--d4, ver el CSS): oscuro=inversion,
   // medio=ahorro, claro=disponible. Van como var() y no como hex fijo para que cambiar
   // el color de la app recoloree tambien el donut, al instante y sin re-render.
+  // solo se listan los grupos con dinero: mostrar filas en $0.00 confunde a quien
+  // apenas empieza (y el donut ya los omitia, asi que la lista no cuadraba con el dibujo)
   const grupos=[
     {nombre:'Ahorro con rendimiento',sub:'cuentas con rendimiento',monto:g1,color:'var(--d1)',txt:'var(--d1t)'},
     {nombre:'Inversiones',sub:'acciones (GBM)'+(nvdaPendiente?' · precio pendiente':''),monto:g2,color:'var(--d2)',txt:'var(--d2t)'},
     {nombre:'Disponible',sub:'lo que tienes disponible',monto:g3,color:'var(--d3)',txt:'var(--d3t)'},
     {nombre:'Garantia congelada',sub:'deposito (sin usar)',monto:g4,color:'var(--d4)',txt:'var(--d4t)'}
-  ];
+  ].filter(g=>g.monto>0);
   const R=62,SW=16,rm=R-SW/2,C=2*Math.PI*rm;
   let off=0,circ='';
   grupos.forEach(g=>{
