@@ -658,6 +658,7 @@ table.mini th:first-child,table.mini td:first-child{text-align:left}
           <option value="revolut">(sin usar)</option>
           <option value="efectivo">efectivo</option>
           <option value="nu">BBVA</option>
+          <option value="externo">externo · no toca mis cuentas</option>
         </select>
       </div>
     </div>
@@ -995,7 +996,16 @@ const auth = getAuth(app);
 const ALLOWED_EMAIL = 'tono32sa@gmail.com'; // el correo con el que entras a esta copia
 const TITULOS = 45;
 // metas del usuario para el cierre de ano y cuota mensual de un plan de suscripcion
-const META_SAVINGS = 0, META_STOCKS = 0, META_FECHA = '2026-12-31', PREMIUM_MONTO = 0; // define tus metas aqui
+const PREMIUM_MONTO = 0;
+// Las metas ya no se queman aqui: viven en el documento tono/metas y se crean/borran
+// desde la pestana metas. Catalogo CERRADO de cuentas que una meta puede seguir (una
+// meta a una cuenta que no existe no se podria medir). 'patrimonio' es el total de todo.
+const META_FECHA_DEF = '2026-12-31';
+const METAS_CUENTAS={stocks:'invertido en bolsa (GBM)', efectivo:'efectivo',
+  nu:'BBVA', patrimonio:'patrimonio total'};
+// de esas, las unicas cuyas APORTACIONES sabemos medir (aportacionesEnRango): solo estas
+// se pueden proyectar en "el camino"; el resto se muestra sin proyeccion
+const METAS_PROYECTABLES=['stocks'];
 // ── ESTANDAR PERSONAL ─────────────────────────────────────────
 // UNICA fuente de umbrales: coach, cierre, score y metas lo consumen. Cada uno declara
 // su procedencia para no vender como "oficial" lo que es criterio propio.
@@ -1017,7 +1027,7 @@ function estandarDe(p) {
   return {...base,ver:ESTANDAR_VER};
 }
 const CUENTAS = {efectivo:'efectivo', nu:'BBVA', tarjeta:'American Express', stocks:'GBM'};
-const CTAS_STOCK_OP=['efectivo','nu']; // cuentas desde las que se puede comprar/vender bolsa
+const CTAS_STOCK_OP=['efectivo','nu','externo']; // cuentas desde las que se puede comprar/vender bolsa ('externo' no toca saldos)
 const FUENTES_GASTO=['efectivo','nu','tarjeta'];
 const DESTINOS_INGRESO=['efectivo','nu']; // gbm retirado (los ingresos legados con gbm solo se muestran/deshacen)
 const CATS_GASTO_DEFAULT = ['Comida','Transporte','Salidas','Ropa','Salud','Suscripciones','Educacion','Casa','Entretenimiento','Viajes','Regalos','Otros'];
@@ -1081,6 +1091,15 @@ function ocultarCuentasNoUsadas() {
       const campo=el&&el.closest('.field');
       if(campo) campo.hidden=true;
     });
+  });
+  // los formularios de cargos/pagos de cada tarjeta viven en su propia seccion
+  // acordeon, separada de la tarjeta de arriba: tambien hay que taparlos, si no
+  // quedan visibles como "(sin usar)" y aceptan capturas a cuentas fantasma
+  const FORM_DE={tarjeta:'tarjeta-cargo-monto', tarjetaRev:'tarjeta-rev-monto'};
+  SIN_USAR.forEach(slot=>{
+    const inp=document.getElementById(FORM_DE[slot]||'');
+    const sec=inp&&inp.closest('.sec');
+    if(sec) sec.hidden=true;
   });
   // el deposito de la TDC solo existe si existe esa tarjeta
   if(!SIN_USAR.includes('tarjetaRev')) return;
@@ -1162,6 +1181,7 @@ let state = {
   mesOffset:0, resPeriodo:'mes',
   catsGasto:[...CATS_GASTO_DEFAULT], catsIngreso:[...CATS_INGRESO_DEFAULT],
   apartados:[],
+  metas:{fecha:META_FECHA_DEF,items:[]},
   // perfil para el estandar personalizado (vacio = estandar generico, no bloquea nada)
   perfil:{anoNac:null, vivienda:'', dependientes:0, ingresoBase:null, nombre:'', foto:''},
   personas:JSON.parse(JSON.stringify(PERSONAS_DEFAULT)),
@@ -1292,6 +1312,19 @@ async function loadFromFirebase() {
         .map(a=>({id:a.id,nombre:String(a.nombre).slice(0,30),meta:a.meta,ahorrado:a.ahorrado,
           fechaLimite:(typeof a.fechaLimite==='string'&&/^\d{4}-(0[1-9]|1[0-2])$/.test(a.fechaLimite))?a.fechaLimite:'',
           creado:typeof a.creado==='string'?a.creado:''}));
+    }
+    const mtDoc = await getDoc(doc(db,NS,'metas'));
+    {
+      const m=mtDoc.exists()?(mtDoc.data()||{}):{};
+      const fecha=(typeof m.fecha==='string'&&fechaCalendarioValida(m.fecha))?m.fecha:META_FECHA_DEF;
+      let items=[];
+      if (Array.isArray(m.items)) {
+        // se descarta cualquier item corrupto o de una cuenta que no exista en esta app
+        items=m.items.filter(i=>i&&typeof i.id==='string'&&Object.hasOwn(METAS_CUENTAS,i.cuenta)
+          &&Number.isFinite(i.monto)&&i.monto>0)
+          .map(i=>({id:i.id,cuenta:i.cuenta,monto:i.monto}));
+      }
+      state.metas={fecha,items};
     }
     const cDoc = await getDoc(doc(db,NS,'categorias'));
     if (cDoc.exists()) {
@@ -1970,7 +2003,7 @@ function render() {
   const neto=total+saldoDeudas-(state.tarjetaDeuda||0)-(state.revTdcDeuda||0);
   document.getElementById('neto-display').textContent='patrimonio neto (con deudas y tarjetas): '+fmt(neto);
   renderDistribucion(nu1.saldo+rs.saldo, nvdaVal, state.efectivo+state.nuSaldo+state.revMXN, tdcDep, posAbiertas.length>0&&!stocksCompleto);
-  renderMetas(rs.saldo, nvdaVal, posAbiertas.length>0&&!stocksCompleto);
+  renderMetas({stocks:nvdaVal, stocksPendiente:posAbiertas.length>0&&!stocksCompleto, patrimonio:total});
   renderApartados();
   renderStockDatalist();
   renderResumenCorto();
@@ -2860,7 +2893,8 @@ async function operarStock(tipo) {
     if(!pos||pos.acciones<d.acciones-1e-8){ showToast('no tienes tantas acciones de '+d.simbolo); return; }
     if(accionesEnFecha(d.simbolo, parseFechaLocal(d.fecha).getTime())<d.acciones-1e-8){ showToast('en esa fecha no tenias tantas acciones de '+d.simbolo); return; }
   }
-  const campo={efectivo:'efectivo',nu:'nuSaldo',revolut:'revMXN'}[d.cuenta];
+  // 'externo' no tiene campo: la compra/venta no toca saldos (dinero fuera de la app)
+  const campo={efectivo:'efectivo',nu:'nuSaldo',revolut:'revMXN'}[d.cuenta]||null;
   const opBtn=document.getElementById('stock-op-btn');
   stockOpOcupado=true;
   if(opBtn) opBtn.disabled=true;
@@ -2870,25 +2904,27 @@ async function operarStock(tipo) {
       res=await runTransaction(db, async tx=>{
         const sSnap=await tx.get(doc(db,NS,'saldos'));
         const pSnap=await tx.get(doc(db,NS,'posiciones'));
-        const saldoActual=(sSnap.exists()&&Number.isFinite(sSnap.data()[campo]))?sSnap.data()[campo]:0;
-        if(tipo==='compra'&&Math.round(d.monto*100)>Math.round(saldoActual*100)) return {error:'saldo insuficiente en '+(CUENTAS[d.cuenta]||d.cuenta)};
+        const saldoActual=(campo&&sSnap.exists()&&Number.isFinite(sSnap.data()[campo]))?sSnap.data()[campo]:0;
+        if(tipo==='compra'&&campo&&Math.round(d.monto*100)>Math.round(saldoActual*100)) return {error:'saldo insuficiente en '+(CUENTAS[d.cuenta]||d.cuenta)};
         const posData=pSnap.exists()?pSnap.data():{};
         const actUnits=Math.round((Number.isFinite(posData[d.simbolo])?posData[d.simbolo]:0)*1e8);
         const opUnits=Math.round(d.acciones*1e8);
         if(tipo==='venta'&&opUnits>actUnits) return {error:'no tienes tantas acciones de '+d.simbolo};
         const nuevoUnits=tipo==='compra'?actUnits+opUnits:actUnits-opUnits;
-        const nuevoSaldo=Math.round((saldoActual+(tipo==='compra'?-d.monto:d.monto))*100)/100;
+        const nuevoSaldo=campo?Math.round((saldoActual+(tipo==='compra'?-d.monto:d.monto))*100)/100:null;
         const op={tipo,simbolo:d.simbolo,acciones:d.acciones,montoMxn:d.monto,cuenta:d.cuenta,fecha:d.fecha,creado:new Date().toISOString()};
         const opRef=doc(collection(db,C_OPS));
         const trFecha=d.fecha===hoyLocal()?new Date().toISOString():d.fecha+'T00:00:00Z';
-        const tr=tipo==='compra'
+        // con 'externo' no hay transferencia: el dinero nunca estuvo en una cuenta de la app
+        const tr=!campo?null:(tipo==='compra'
           ?{origen:d.cuenta,destino:'stocks',monto:d.monto,nota:'compra '+d.acciones+' '+d.simbolo,fecha:trFecha,opId:opRef.id}
-          :{origen:'stocks',destino:d.cuenta,monto:d.monto,nota:'venta '+d.acciones+' '+d.simbolo,fecha:trFecha,opId:opRef.id};
-        const trRef=doc(collection(db,C_TRANSF));
-        tx.set(opRef,op); tx.set(trRef,tr);
-        tx.update(doc(db,NS,'saldos'), {[campo]:nuevoSaldo});
+          :{origen:'stocks',destino:d.cuenta,monto:d.monto,nota:'venta '+d.acciones+' '+d.simbolo,fecha:trFecha,opId:opRef.id});
+        const trRef=tr?doc(collection(db,C_TRANSF)):null;
+        tx.set(opRef,op);
+        if(tr) tx.set(trRef,tr);
+        if(campo) tx.update(doc(db,NS,'saldos'), {[campo]:nuevoSaldo});
         tx.set(doc(db,NS,'posiciones'), {[d.simbolo]:nuevoUnits/1e8}, {merge:true});
-        return {op:{id:opRef.id,...op}, tr:{id:trRef.id,...tr}, nuevoSaldo};
+        return {op:{id:opRef.id,...op}, tr:tr?{id:trRef.id,...tr}:null, nuevoSaldo};
       });
     }catch(e){
       console.error('operarStock',e);
@@ -2902,8 +2938,8 @@ async function operarStock(tipo) {
       derivarPosiciones();
       if(d.cuenta==='efectivo') state.efectivo=res.nuevoSaldo;
       else if(d.cuenta==='nu') state.nuSaldo=res.nuevoSaldo;
-      else state.revMXN=res.nuevoSaldo;
-      state.transferencias.unshift(res.tr);
+      else if(d.cuenta==='revolut') state.revMXN=res.nuevoSaldo;
+      if(res.tr) state.transferencias.unshift(res.tr);
       limpiarFormStock(); // solo tras exito: ante error los valores capturados se conservan
       render(); renderTransferencias();
       const sinPrecio=!state.accionesMkt[d.simbolo];
@@ -3128,7 +3164,7 @@ function renderDistribucion(ahorro, inversiones, disponible, garantia, nvdaPendi
   const grupos=[
     {nombre:'Ahorro con rendimiento',sub:'cuentas con rendimiento',monto:g1,color:'var(--d1)',txt:'var(--d1t)'},
     {nombre:'Inversiones',sub:'acciones (GBM)'+(nvdaPendiente?' · precio pendiente':''),monto:g2,color:'var(--d2)',txt:'var(--d2t)'},
-    {nombre:'Disponible',sub:'lo que tienes disponible',monto:g3,color:'var(--d3)',txt:'var(--d3t)'},
+    {nombre:'Disponible',sub:'efectivo + BBVA',monto:g3,color:'var(--d3)',txt:'var(--d3t)'},
     {nombre:'Garantia congelada',sub:'deposito (sin usar)',monto:g4,color:'var(--d4)',txt:'var(--d4t)'}
   ].filter(g=>g.monto>0);
   const R=62,SW=16,rm=R-SW/2,C=2*Math.PI*rm;
@@ -3302,64 +3338,136 @@ window.editarPerfil = async function() {
     'perfil guardado · tu referencia se ajusto');
 };
 
-function renderMetas(savings, stocks, nvdaPendiente) {
+function valorMeta(cuenta, ctx) {
+  if(cuenta==='stocks') return ctx.stocks;
+  if(cuenta==='patrimonio') return ctx.patrimonio;
+  return getSaldoCuenta(cuenta);
+}
+function metaBloqueada(cuenta, ctx) { return cuenta==='stocks' && ctx.stocksPendiente; }
+function renderMetas(ctx) {
   const el=document.getElementById('metas-panel'); if(!el) return;
-  const dias=Math.ceil((parseFechaLocal(META_FECHA).getTime()-parseFechaLocal(hoyLocal()).getTime())/86400000);
-  const fila=(nombre,sub,actual,meta)=>{
+  const MT=state.metas||{fecha:META_FECHA_DEF,items:[]};
+  const dias=Math.ceil((parseFechaLocal(MT.fecha).getTime()-parseFechaLocal(hoyLocal()).getTime())/86400000);
+  const fFin=parseFechaLocal(MT.fecha).toLocaleDateString('es-MX',{day:'numeric',month:'long'});
+  const fila=(nombre,sub,actual,meta,id)=>{
     const pct=meta>0?actual/meta*100:0;
     const faltan=meta-actual;
     // la barra se recorta a 100% pero el texto muestra el avance real
     const txt=faltan>0
       ?`te faltan ${fmt(faltan)} · llevas ${pct.toFixed(1)}% de la meta`
       :`meta superada por ${fmt(-faltan)} · ${pct.toFixed(1)}%`;
-    return `<div class="resumen-bar"><div class="bar-header"><span class="bar-label">${nombre}</span><span class="bar-amt" style="color:var(--accent-dark)">${fmt(actual)} / ${fmt(meta)}</span></div>`+
+    return `<div class="resumen-bar"><div class="bar-header"><span class="bar-label">${escapeHtml(nombre)}</span><span><span class="bar-amt" style="color:var(--accent-dark)">${fmt(actual)} / ${fmt(meta)}</span>${id?`<button class="del-btn" onclick="eliminarMeta('${id}')">&times;</button>`:''}</span></div>`+
       `<div class="bar-track" style="height:6px"><div class="bar-fill" style="width:${Math.max(0,Math.min(100,pct)).toFixed(1)}%"></div></div>`+
       `<div class="item-meta" style="margin-top:4px">${txt}${sub?' · '+sub:''}</div></div>`;
   };
-  if(!(META_SAVINGS>0)&&!(META_STOCKS>0)){
-    el.innerHTML='<div class="empty-state">aun no defines tus metas del ano — se configuran en META_SAVINGS y META_STOCKS dentro de index.html</div>';
-    const c=document.getElementById('camino-panel');
-    if(c) c.innerHTML='<div class="empty-state">define primero tus metas para ver la proyeccion</div>';
-    return;
-  }
-  el.innerHTML=`<div class="item-meta" style="margin-bottom:10px">${dias>0?('quedan '+dias+' dias para el 31 de diciembre'):'fecha de la meta cumplida'}</div>`+
-    fila('(sin usar)','',savings,META_SAVINGS)+
-    fila('invertido en bolsa','acciones en GBM'+(nvdaPendiente?' · cotizacion pendiente':''),stocks,META_STOCKS);
-  renderCamino(savings, stocks, nvdaPendiente);
+  const items=(MT.items||[]);
+  const cuerpo = items.length
+    ? items.map(m=>fila(METAS_CUENTAS[m.cuenta]||m.cuenta,
+        metaBloqueada(m.cuenta,ctx)?'cotizacion pendiente':'',
+        valorMeta(m.cuenta,ctx), m.monto, m.id)).join('')
+    : '<div class="empty-state">todavia no tienes metas — crea la primera</div>';
+  el.innerHTML=`<div class="bar-header" style="margin-bottom:10px"><span class="item-meta">${dias>0?('quedan '+dias+' dias para el '+fFin):'la fecha ya paso'}</span>`+
+    `<button type="button" class="del-btn" style="font-size:12px;color:var(--accent);padding:2px 0 2px 10px" onclick="editarFechaMetas()">cambiar fecha</button></div>`+
+    cuerpo+
+    '<button type="button" class="btn" style="margin-top:12px" onclick="nuevaMeta()">+ nueva meta</button>';
+  renderCamino(ctx);
 }
+
+// metas: se crean, se borran y comparten una fecha objetivo. Viven en tono/metas
+let metasGuardando=false;
+async function guardarMetas(nuevo, mensaje) {
+  if(metasGuardando){ showToast('espera: se estan guardando las metas'); return false; }
+  metasGuardando=true;
+  try{
+    if(!datosCargados) throw new Error('datos no cargados');
+    // items:[] explicito para que Firestore no conserve basura de formatos viejos
+    await setDoc(doc(db,NS,'metas'),{fecha:nuevo.fecha,items:nuevo.items});
+    state.metas=nuevo; // solo tras confirmar la escritura
+    setSyncDot('ok'); render(); showToast(mensaje);
+    return true;
+  }catch(e){
+    console.error('guardarMetas',e); setSyncDot('err');
+    showToast('no se pudo guardar — revisa tu conexion');
+    return false;
+  }finally{ metasGuardando=false; }
+}
+window.nuevaMeta = async function() {
+  const MT=state.metas||{fecha:META_FECHA_DEF,items:[]};
+  const usadas=(MT.items||[]).map(m=>m.cuenta);
+  const libres=Object.keys(METAS_CUENTAS).filter(c=>!usadas.includes(c));
+  if(!libres.length){ showToast('ya tienes una meta para cada cuenta'); return; }
+  // se listan numeradas: en el celular escribir el numero es mas facil que el nombre
+  const menu=libres.map((c,i)=>(i+1)+'. '+METAS_CUENTAS[c]).join('\n');
+  const cRaw=prompt('¿Para que cuenta es la meta? escribe el numero:\n\n'+menu);
+  if(cRaw===null) return;
+  const idx=parseInt(cRaw.trim(),10);
+  if(!Number.isInteger(idx)||idx<1||idx>libres.length){ showToast('escribe un numero de la lista'); return; }
+  const cuenta=libres[idx-1];
+  const mRaw=prompt('¿Cuanto quieres llegar a tener en '+METAS_CUENTAS[cuenta]+'?');
+  if(mRaw===null) return;
+  const t=mRaw.trim();
+  if(!/^\d+(\.\d{1,2})?$/.test(t)){ showToast('monto no valido'); return; }
+  const monto=Math.round(parseFloat(t)*100)/100;
+  if(!Number.isFinite(monto)||monto<=0){ showToast('el monto debe ser mayor a cero'); return; }
+  const items=[...(MT.items||[]),{id:(crypto.randomUUID?crypto.randomUUID():String(Date.now())+Math.random().toString(36).slice(2)),cuenta,monto}];
+  await guardarMetas({fecha:MT.fecha,items},'meta de '+METAS_CUENTAS[cuenta]+' creada');
+};
+window.eliminarMeta = async function(id) {
+  const MT=state.metas||{fecha:META_FECHA_DEF,items:[]};
+  const m=(MT.items||[]).find(x=>x.id===id); if(!m) return;
+  if(!confirm('¿Quitar la meta de '+(METAS_CUENTAS[m.cuenta]||m.cuenta)+'? No borra tu dinero, solo deja de seguirla.')) return;
+  await guardarMetas({fecha:MT.fecha,items:(MT.items||[]).filter(x=>x.id!==id)},'meta eliminada');
+};
+window.editarFechaMetas = async function() {
+  const MT=state.metas||{fecha:META_FECHA_DEF,items:[]};
+  const fRaw=prompt('¿Para que fecha quieres lograrlas? (formato 2026-12-31)',MT.fecha);
+  if(fRaw===null) return;
+  const fecha=fRaw.trim();
+  if(!fechaCalendarioValida(fecha)){ showToast('fecha no valida, usa el formato 2026-12-31'); return; }
+  if(fecha<hoyLocal()){ showToast('esa fecha ya paso'); return; }
+  await guardarMetas({fecha,items:MT.items||[]},'fecha actualizada');
+};
 
 // proyeccion CONSERVADORA hacia la meta: solo aportaciones registradas (promedio de los
 // ultimos 3 meses completos, incluyendo meses en cero), sin contar rendimientos futuros
-function renderCamino(savings, stocks, nvdaPendiente) {
+function renderCamino(ctx) {
+  const MT=state.metas||{fecha:META_FECHA_DEF,items:[]};
   const el=document.getElementById('camino-panel'); if(!el) return;
-  const hoyD=new Date(), metaD=parseFechaLocal(META_FECHA);
-  // comparacion por fecha calendario: el propio 31-dic todavia cuenta como ultimo dia
-  if(hoyLocal()>META_FECHA){ el.innerHTML='<div class="empty-state">la fecha de la meta ya paso — hora de definir las de 2027</div>'; return; }
+  if(!(MT.items||[]).length){ el.innerHTML='<div class="empty-state">crea una meta y aqui aparece si vas a tiempo</div>'; return; }
+  const hoyD=new Date(), metaD=parseFechaLocal(MT.fecha);
+  // comparacion por fecha calendario: el propio ultimo dia todavia cuenta
+  if(hoyLocal()>MT.fecha){ el.innerHTML='<div class="empty-state">la fecha de tus metas ya paso — hora de fijar las siguientes</div>'; return; }
   // meses COMPLETOS que faltan despues del actual (los aportes del mes en curso ya estan en el saldo)
   const mesesFut=Math.max(0,(metaD.getFullYear()-hoyD.getFullYear())*12+(metaD.getMonth()-hoyD.getMonth()));
-  let sumS=0,sumSt=0,huboOp=false;
+  // promedio de aportacion de los ultimos 3 meses, por cuenta proyectable
+  const suma={}; let huboOp=false;
+  METAS_PROYECTABLES.forEach(c=>{ suma[c]=0; });
   for(let i=1;i<=3;i++){
     const ini=new Date(hoyD.getFullYear(),hoyD.getMonth()-i,1);
     const fin=new Date(hoyD.getFullYear(),hoyD.getMonth()-i+1,1);
     const ap=aportacionesEnRango(ini,fin);
-    sumS+=ap.revSavings; sumSt+=ap.stocks;
-    // solo cuentan las cuentas que Camino proyecta (savings y bolsa)
-    if(ap.revSavings!==0||ap.stocks!==0) huboOp=true;
+    METAS_PROYECTABLES.forEach(c=>{ suma[c]+=(ap[c]||0); if(ap[c]) huboOp=true; });
   }
   const fila=(nombre,actual,meta,prom,bloqueada)=>{
-    if(bloqueada) return `<div class="item-row"><div><div class="item-cat">${nombre}</div><div class="item-meta">cotizacion pendiente — proyeccion no disponible</div></div><span class="item-meta">—</span></div>`;
+    if(prom===null&&meta-actual>0) return `<div class="item-row"><div><div class="item-cat">🎯 ${escapeHtml(nombre)}</div><div class="item-meta">te faltan ${fmt(meta-actual)} · esta cuenta no lleva registro de aportaciones, no se puede proyectar</div></div></div>`;
+    if(bloqueada) return `<div class="item-row"><div><div class="item-cat">${escapeHtml(nombre)}</div><div class="item-meta">cotizacion pendiente — proyeccion no disponible</div></div><span class="item-meta">—</span></div>`;
     const falta=Math.max(0,meta-actual);
-    if(falta<=0) return `<div class="item-row"><div><div class="item-cat">🏁 ${nombre}</div><div class="item-meta">meta lograda — todo lo demas es ventaja</div></div><div style="font-weight:600">${fmt(actual)}</div></div>`;
-    if(mesesFut<=0) return `<div class="item-row"><div><div class="item-cat">${nombre}</div><div class="item-meta">ultimo mes: te faltan ${fmt(falta)} para la meta</div></div><span class="item-meta">—</span></div>`;
+    if(falta<=0) return `<div class="item-row"><div><div class="item-cat">🏁 ${escapeHtml(nombre)}</div><div class="item-meta">meta lograda — todo lo demas es ventaja</div></div><div style="font-weight:600">${fmt(actual)}</div></div>`;
+    if(mesesFut<=0) return `<div class="item-row"><div><div class="item-cat">${escapeHtml(nombre)}</div><div class="item-meta">ultimo mes: te faltan ${fmt(falta)} para la meta</div></div><span class="item-meta">—</span></div>`;
     const proy=actual+prom*mesesFut, nece=falta/mesesFut, ok=proy>=meta-0.005;
     const promTxt=(prom<0?'−':'')+fmt(Math.abs(prom)); // signo manual: fmt pone el $ antes del -
-    return `<div class="item-row"><div><div class="item-cat">${ok?'✅':'🎯'} ${nombre}</div><div class="item-meta">${
-      ok?('a tu ritmo (~'+promTxt+'/mes) llegas a diciembre con '+fmt(proy))
+    return `<div class="item-row"><div><div class="item-cat">${ok?'✅':'🎯'} ${escapeHtml(nombre)}</div><div class="item-meta">${
+      ok?('a tu ritmo (~'+promTxt+'/mes) llegas a la fecha con '+fmt(proy))
         :('a tu ritmo (~'+promTxt+'/mes) llegarias a '+fmt(Math.max(0,proy))+' — sube tu aporte a '+fmt(nece)+'/mes')
     }</div></div></div>`;
   };
-  el.innerHTML=fila('(sin usar)',savings,META_SAVINGS,sumS/3,false)+
-    fila('bolsa',stocks,META_STOCKS,sumSt/3,nvdaPendiente)+
+  el.innerHTML=(MT.items||[]).map(m=>{
+      const nom=METAS_CUENTAS[m.cuenta]||m.cuenta;
+      const actual=valorMeta(m.cuenta,ctx);
+      // solo se proyecta lo que sabemos medir; el resto se muestra sin proyeccion
+      const proyectable=METAS_PROYECTABLES.includes(m.cuenta);
+      return fila(nom,actual,m.monto,proyectable?suma[m.cuenta]/3:null,metaBloqueada(m.cuenta,ctx));
+    }).join('')+
     `<div class="item-meta" style="text-align:center;padding-top:8px">${huboOp
       ?'proyeccion conservadora: solo tus aportaciones, sin contar rendimientos'
       :'aun no hay aportaciones registradas en los ultimos 3 meses — la proyeccion arranca cuando muevas dinero desde la app'}</div>`;
@@ -3669,18 +3777,28 @@ function calcularCierre(start,end,modo) {
     if(hayPrev) comp={mes:MESES[prevIni.getMonth()],parcial:!!esActual,
       dG:pg>0?(totalG-pg)/pg*100:null, dI:pi>0?(totalI-pi)/pi*100:null, prevG:pg, prevI:pi};
   }
-  // metas de diciembre: tras la fecha meta ya no se calcula ritmo, se informa el resultado
+  // metas: tras la fecha objetivo ya no se calcula ritmo, se informa el resultado
   let metas=null;
+  const MT=state.metas||{fecha:META_FECHA_DEF,items:[]};
   if(esActual&&!esAno){
-    const metaPaso=hoyLocal()>META_FECHA;
-    const hoyD=new Date(), metaD=parseFechaLocal(META_FECHA);
+    const metaPaso=hoyLocal()>MT.fecha;
+    const hoyD=new Date(), metaD=parseFechaLocal(MT.fecha);
     const mesesRest=Math.max(1,(metaD.getFullYear()-hoyD.getFullYear())*12+(metaD.getMonth()-hoyD.getMonth())+1);
-    const savActual=calcRevSavings().saldo;
     const posA=Object.entries(state.posiciones).filter(([k,p])=>p.acciones>0);
     let stVal=0, stCompleto=Number.isFinite(state.usdMxn);
     posA.forEach(([k,p])=>{ const mk=state.accionesMkt[k]; if(mk&&Number.isFinite(mk.precio)&&stCompleto) stVal+=p.acciones*mk.precio*state.usdMxn; else stCompleto=false; });
-    metas={vencida:metaPaso,mesesRest,savActual,faltaS:Math.max(0,META_SAVINGS-savActual),
-      stVal,stCompleto:stCompleto||posA.length===0,faltaSt:Math.max(0,META_STOCKS-stVal)};
+    // patrimonio con la MISMA formula del total de inicio (para una meta de patrimonio)
+    const patTot=calcNu1().saldo+state.nuSaldo+state.efectivo+state.revMXN+calcRevSavings().saldo+stVal+(Number.isFinite(state.revTdcDeposito)?state.revTdcDeposito:0);
+    const ctxM={stocks:stVal, stocksPendiente:posA.length>0&&!stCompleto, patrimonio:patTot};
+    // una entrada por meta: el coach las recorre en vez de hablar de dos cuentas fijas
+    const lista=(MT.items||[]).map(m=>({
+      nombre:METAS_CUENTAS[m.cuenta]||m.cuenta,
+      falta:Math.max(0,m.monto-valorMeta(m.cuenta,ctxM)),
+      medible:!metaBloqueada(m.cuenta,ctxM),
+      // aporte del periodo: solo existe para las cuentas que aportacionesEnRango sabe medir
+      aporte:METAS_PROYECTABLES.includes(m.cuenta)?(ap[m.cuenta]||0):undefined
+    }));
+    metas={vencida:metaPaso,mesesRest,lista};
   }
   // "maduro": con menos de 15 dias corridos un veredicto seria ruido. Los consumidores
   // deciden que mostrar; el cierre de Resumen igual ensena las cifras, marcadas como parciales
@@ -3784,11 +3902,12 @@ function textoAnalisis(m) {
   }
   if(metas&&!metas.vencida){
     const frases=[];
-    if(metas.faltaS>0) frases.push('para Savings necesitas '+fmt(metas.faltaS/metas.mesesRest)+' al mes durante los '+metas.mesesRest+' meses que quedan');
-    else frases.push('la meta de Savings ya esta cubierta');
-    if(metas.stCompleto){ if(metas.faltaSt>0) frases.push('y para bolsa '+fmt(metas.faltaSt/metas.mesesRest)+' al mes'); else frases.push('y la de bolsa tambien'); }
-    if(frases.length) p.push('Rumbo a diciembre 2026: '+frases.join(', ')+'.');
-  } else if(metas&&metas.vencida) p.push('La fecha de tus metas 2026 ya paso: toca revisar el resultado y fijar las de 2027.');
+    (metas.lista||[]).filter(m=>m.medible&&m.falta>0).slice(0,3).forEach((m,i)=>{
+      frases.push((i===0?'para '+m.nombre+' necesitas ':'y para '+m.nombre+' ')+fmt(m.falta/metas.mesesRest)+' al mes'+(i===0?(' durante los '+metas.mesesRest+' meses que quedan'):''));
+    });
+    if((metas.lista||[]).length&&(metas.lista||[]).every(m=>!m.medible||m.falta<=0)) frases.push('vas al corriente con todas tus metas');
+    if(frases.length) p.push('Rumbo a tu meta: '+frases.join(', ')+'.');
+  } else if(metas&&metas.vencida) p.push('La fecha de tus metas ya paso: toca revisar el resultado y fijar las siguientes.');
   if(racha>=1) p.push('Y llevas '+(racha>=24?'24 o mas':racha)+' mes'+(racha>1?'es':'')+' seguido'+(racha>1?'s':'')+' cerrando bien — esa racha es tu mejor activo.');
   return p;
 }
@@ -3837,16 +3956,14 @@ function cierreMesHTML(m,label,capturar) {
   });
   // ritmo hacia las metas de diciembre (el modelo ya decidio si aplica y si hay cotizaciones)
   if(metas&&!metas.vencida){
-    if(metas.faltaS>0){
-      const ritmo=metas.faltaS/metas.mesesRest;
-      fila(ap.revSavings>=ritmo-0.005?'✅':'🎯','ritmo meta Savings (dic 2026)',
-        'necesitas '+fmt(ritmo)+'/mes · este '+per+' llevas '+fmt(ap.revSavings),'');
-    }
-    if(metas.stCompleto&&metas.faltaSt>0){
-      const ritmoSt=metas.faltaSt/metas.mesesRest;
-      fila(ap.stocks>=ritmoSt-0.005?'✅':'🎯','ritmo meta bolsa (dic 2026)',
-        'necesitas '+fmt(ritmoSt)+'/mes · este '+per+' llevas '+fmt(ap.stocks),'');
-    }
+    // una linea por meta que aun no se logra. El "llevas" solo aplica a las cuentas
+    // cuyas aportaciones sabemos medir; en las demas se omite para no inventar un dato
+    (metas.lista||[]).filter(m2=>m2.medible&&m2.falta>0).forEach(m2=>{
+      const ritmo=m2.falta/metas.mesesRest;
+      const llev=Number.isFinite(m2.aporte)?(' · este '+per+' llevas '+fmt(m2.aporte)):'';
+      fila((Number.isFinite(m2.aporte)&&m2.aporte>=ritmo-0.005)?'✅':'🎯','ritmo meta '+m2.nombre,
+        'necesitas '+fmt(ritmo)+'/mes'+llev,'');
+    });
   }
   // snapshot para exportar: solo lo escribe el cierre VISIBLE en Resumen
   if(capturar) ultimoCierre={label:label||'',per,esActual,coachTxt:coach,filas:F,racha,preliminar:(esActual&&!m.maduro)};
