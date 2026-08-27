@@ -47,8 +47,33 @@ Ver `README.md` para el paso a paso completo.
 - `ESTANDARES` + `estandarDe(perfil)`: única fuente de umbrales financieros (ahorro objetivo,
   gasto máximo, meses de emergencia). Coach, cierre, racha y score los consumen; no
   hardcodear porcentajes sueltos.
-- **Cuentas**: hoy están fijas en el código (`CUENTAS`, campos del `state`). Volverlas
-  configurables por usuario es el siguiente paso planeado de esta plantilla.
+- **Cuentas**: el usuario las configura desde la app, en el acordeón "mis cuentas" de
+  Inicio. El catálogo de slots (`SLOTS`) y sus capacidades por tipo (`CAPS`) son fijos e
+  inmutables: los gastos, ingresos, transferencias y deudas guardan la CLAVE del slot, no
+  su nombre, así que **un slot nunca se reasigna a otro banco una vez que tiene historia**
+  (renombrarlo reescribe cómo se lee todo su historial). Lo configurable es si la cuenta
+  está activa, cómo se llama y, en las tarjetas, el día de corte y si es normal o
+  garantizada. Vive en el documento `<NS>/cuentas` y las reglas de Firestore ya lo cubren
+  (`match /<NS>/{documento=**}` es recursivo).
+  - `aplicarConfigCuentas()` recalcula los nombres (`CUENTAS`) y **todas** las listas
+    derivadas, y refleja en el DOM qué cuentas están activas. Es idempotente y reversible
+    (`hidden`/`disabled`, nunca `remove()`), y corre en cada `render()` más dos veces en el
+    arranque. Si agregas una lista de cuentas nueva, **derívala ahí**; no la quemes.
+  - Distingue listas de **alta** (solo cuentas activas: `FUENTES_GASTO`,
+    `DESTINOS_INGRESO`, `CTAS_STOCK_OP`, `CUENTAS_DETALLE`, `DEUDA_CUENTAS_ALTA`) de las de
+    **lectura y reversión** (todos los slots: `CUENTAS`, `DEUDA_CUENTAS`, las claves de
+    `METAS_CUENTAS`). Un movimiento viejo de una cuenta apagada debe poder leerse y
+    borrarse siempre.
+  - Apagar una cuenta significa "no admite movimientos nuevos", **nunca** "sale del
+    patrimonio": por eso no se deja apagar una con saldo distinto de cero, y una apagada
+    que aún tenga dinero sigue mostrando su tarjeta.
+  - Los nombres los escribe el usuario: al DOM van con `textContent` (vía `data-nom`), y
+    a cualquier `innerHTML` **siempre** con `escapeHtml()`.
+  - Límite conocido: 2 tarjetas de crédito, 2 cajitas de ahorro y 2 cuentas de banco por
+    persona. Para más habría que añadir slots (con su HTML), no reescribir el modelo.
+- **Día de corte**: `diaCorteMes()` y `cicloTarjeta(dia)`. Nunca uses `new Date(y,m,31)`
+  para un corte: se desborda al mes siguiente. La barra de progreso mide el ciclo real
+  (que no siempre son 30 días).
 
 ## Reglas de trabajo
 
