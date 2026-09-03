@@ -1,4 +1,4 @@
-const CACHE = 'mc-cartera-tono-v1';
+const CACHE = 'mc-cartera-tono-v2';
 const ASSETS = ['./', './index.html', './manifest.json'];
 
 self.addEventListener('install', e => {
