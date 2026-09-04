@@ -690,6 +690,11 @@ table.mini th:first-child,table.mini td:first-child{text-align:left}
   </details>
   </div>
   </div>
+  <!-- solo aparece si el service worker bajo una version distinta a la que se esta viendo -->
+  <div id="aviso-version" hidden style="margin:12px 0 0;padding:10px 14px;border-radius:var(--rs);background:var(--bg3);border:0.5px solid var(--border2);font-size:13px;text-align:center">
+    hay una versión nueva de la app
+    <button type="button" class="btn btn-purple" style="margin-top:8px" onclick="location.reload()">recargar</button>
+  </div>
   <div class="status" id="status-inicio">—</div>
   <div class="status" id="version-app" style="margin-top:2px;padding-bottom:8px">—</div>
 </div>
@@ -1011,7 +1016,7 @@ table.mini th:first-child,table.mini td:first-child{text-align:left}
 
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, getDocs, query, orderBy, writeBatch, runTransaction, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, getDoc, setDoc, updateDoc, collection, getDocs, query, orderBy, writeBatch, runTransaction, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 
 const firebaseConfig = {
@@ -1032,7 +1037,22 @@ const C_GASTOS=PFX+'gastos', C_INGRESOS=PFX+'ingresos', C_TRANSF=PFX+'transferen
 // (proyecto + nombre de instancia), asi que dos copias en el MISMO dominio ya no
 // comparten sesion ni se expulsan entre si.
 const app = initializeApp(firebaseConfig, NS);
-const db = getFirestore(app);
+// CACHE PERSISTENTE (IndexedDB): sin esto, cada apertura releia TODO de la red y en el
+// telefono con senal mala eso eran varios segundos de pantalla de carga. Con la cache,
+// si la red tarda o no hay, Firestore responde con lo ultimo guardado en el aparato.
+// OJO: esto NO vuelve instantaneo un getDoc por si solo (getDoc espera al servidor y
+// solo cae a cache si falla); lo que lo acelera de verdad es que las lecturas del
+// arranque ahora van en PARALELO (ver loadFromFirebase).
+// Puede fallar en modo privado o si el navegador no da IndexedDB: ahi se sigue sin cache.
+let db;
+try {
+  db = initializeFirestore(app, {
+    localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+  });
+} catch (e) {
+  console.error('cache persistente no disponible, se sigue sin ella', e);
+  db = getFirestore(app);
+}
 const auth = getAuth(app);
 
 const ALLOWED_EMAIL = 'tono32sa@gmail.com'; // el correo con el que entras a esta copia
@@ -1381,7 +1401,37 @@ aplicarConfigCuentas();
 let datosCargados = false; // true solo cuando loadFromFirebase termina con exito (evita sobreescribir datos reales con defaults)
 async function loadFromFirebase() {
   try {
-    const sDoc = await getDoc(doc(db,NS,'saldos'));
+    // ARRANQUE EN PARALELO. Antes estas 12 lecturas iban una tras otra, cada una
+    // esperando a que volviera la anterior: en el telefono, con la latencia de la red
+    // celular, eran 12 viajes encadenados y la pantalla de carga se eternizaba. Ahora
+    // salen TODAS juntas y se espera una sola vez. El procesamiento de abajo conserva
+    // exactamente el mismo orden, asi que nada cambia de semantica.
+    const [
+      sDoc, mDoc, pDoc, perDoc, tDoc,
+      trvDoc, hDoc, aDoc, mtDoc, cDoc,
+      gSnap, iSnap,
+      trSnap, opSnap, ctaDoc
+    ] = await Promise.all([
+      getDoc(doc(db,NS,'saldos')),
+      getDoc(doc(db,NS,'mercado')),
+      getDoc(doc(db,NS,'personas')),
+      getDoc(doc(db,NS,'perfil')),
+      getDoc(doc(db,NS,'tarjeta')),
+      getDoc(doc(db,NS,'tarjetaRev')),
+      getDoc(doc(db,NS,'historial')),
+      getDoc(doc(db,NS,'apartados')),
+      getDoc(doc(db,NS,'metas')),
+      getDoc(doc(db,NS,'categorias')),
+      getDocs(query(collection(db,C_GASTOS), orderBy('fecha','desc'))),
+      getDocs(query(collection(db,C_INGRESOS), orderBy('fecha','desc'))),
+      getDocs(query(collection(db,C_TRANSF), orderBy('fecha','desc'))),
+      getDocs(query(collection(db,C_OPS), orderBy('fecha','asc'))),
+      getDoc(doc(db,NS,'cuentas')),
+    ]);
+    // si los datos vinieron de la cache local (red caida o lentisima) NO se corren
+    // las siembras/migraciones: decidirian sobre un estado viejo y podrian reaplicar
+    // correcciones ya hechas. Se saltan y se reintentan en la proxima apertura con red.
+    const desdeCache = !!(sDoc && sDoc.metadata && sDoc.metadata.fromCache);
     if (sDoc.exists()) {
       const d = sDoc.data();
       // respaldo de todos los campos numericos/fecha antes de sobreescribir: si algo llega
@@ -1406,7 +1456,6 @@ async function loadFromFirebase() {
     }
     // cotizaciones viven en su propio doc (cartera/mercado) para que un guardado de
     // saldos nunca pise precios y viceversa; si aun no existe, quedan los legados de saldos
-    const mDoc = await getDoc(doc(db,NS,'mercado'));
     if (mDoc.exists()) {
       const m = mDoc.data();
       if (Number.isFinite(m.ivvPrecio)) state.ivvPrecio = m.ivvPrecio;
@@ -1438,11 +1487,10 @@ async function loadFromFirebase() {
     } else {
       // migracion unica: persistir en mercado las cotizaciones legadas de saldos
       // (la proxima escritura de saldos ya no las incluye y se perderian si Yahoo falla)
-      try { await setDoc(doc(db,NS,'mercado'), {ivvPrecio:state.ivvPrecio, ivvVar:state.ivvVar, ivvHistory:state.ivvHistory}, {merge:true}); }
+      try { if (!desdeCache) await setDoc(doc(db,NS,'mercado'), {ivvPrecio:state.ivvPrecio, ivvVar:state.ivvVar, ivvHistory:state.ivvHistory}, {merge:true}); }
       catch(e) { console.error('migracion mercado',e); }
     }
     // (sin siembras: esta plantilla arranca vacia; los datos los captura cada usuario)
-    const pDoc = await getDoc(doc(db,NS,'personas'));
     if (pDoc.exists()) {
       // el campo data debe ser un MAP {clave:persona}. Si quedo como ARRAY (dato viejo
       // de una version previa), Firestore descarta las claves nombradas al guardar y la
@@ -1463,9 +1511,10 @@ async function loadFromFirebase() {
         if (!Number.isFinite(p.saldo)) p.saldo = 0;
       });
     }
-    else await setDoc(doc(db,NS,'personas'), {data:state.personas});
+    // sin red confirmada NO se siembra: un exists()==false que venga de la cache local
+    // pisaria con los defaults el historial de deudas real que si esta en el servidor
+    else if (!desdeCache) await setDoc(doc(db,NS,'personas'), {data:state.personas});
     // perfil: campos corruptos caen al default sin bloquear la carga
-    const perDoc = await getDoc(doc(db,NS,'perfil'));
     if (perDoc.exists()) {
       const pf=perDoc.data()||{};
       const anoAct=new Date().getFullYear();
@@ -1478,11 +1527,9 @@ async function loadFromFirebase() {
         // solo se acepta un dataURL jpeg/png generado por la propia app
         foto:(typeof pf.foto==='string'&&/^data:image\/(?:jpeg|png);base64,[A-Za-z0-9+/]+={0,2}$/.test(pf.foto)&&pf.foto.length<900000)?pf.foto:''};
     }
-    const tDoc = await getDoc(doc(db,NS,'tarjeta'));
     if (tDoc.exists()) { state.tarjetaDeuda = Number.isFinite(tDoc.data().deuda) ? tDoc.data().deuda : state.tarjetaDeuda; state.tarjetaMovimientos = Array.isArray(tDoc.data().movimientos) ? tDoc.data().movimientos : []; }
     // (sin usar): {deuda, deposito, movimientos} viven JUNTOS en su doc (el deposito NO va
     // en saldos: un cliente viejo con setDoc completo de saldosPayload lo borraria)
-    const trvDoc = await getDoc(doc(db,NS,'tarjetaRev'));
     if (trvDoc.exists()) {
       const tv = trvDoc.data();
       if (Number.isFinite(tv.deuda)) state.revTdcDeuda = tv.deuda;
@@ -1492,12 +1539,9 @@ async function loadFromFirebase() {
     }
     // configuracion de cuentas: se valida slot por slot; lo corrupto cae al valor de
     // fabrica en vez de romper la app o dejar una cuenta sin nombre
-    const ctaDoc = await getDoc(doc(db,NS,'cuentas'));
     if (ctaDoc.exists()) aplicarCuentasRemotas(ctaDoc.data());
     aplicarConfigCuentas(); // las listas deben reflejar YA la configuracion del usuario
-    const hDoc = await getDoc(doc(db,NS,'historial'));
     if (hDoc.exists()) state.snapshots = Array.isArray(hDoc.data().snapshots) ? hDoc.data().snapshots : [];
-    const aDoc = await getDoc(doc(db,NS,'apartados'));
     if (aDoc.exists() && Array.isArray(aDoc.data().items)) {
       // normalizacion por item: se descartan elementos corruptos (id/nombre/montos invalidos)
       state.apartados = aDoc.data().items.filter(a=>a&&typeof a.id==='string'&&/^[A-Za-z0-9-]+$/.test(a.id)
@@ -1507,7 +1551,6 @@ async function loadFromFirebase() {
           fechaLimite:(typeof a.fechaLimite==='string'&&/^\d{4}-(0[1-9]|1[0-2])$/.test(a.fechaLimite))?a.fechaLimite:'',
           creado:typeof a.creado==='string'?a.creado:''}));
     }
-    const mtDoc = await getDoc(doc(db,NS,'metas'));
     {
       const m=mtDoc.exists()?(mtDoc.data()||{}):{};
       const fecha=(typeof m.fecha==='string'&&fechaCalendarioValida(m.fecha))?m.fecha:META_FECHA_DEF;
@@ -1520,19 +1563,14 @@ async function loadFromFirebase() {
       }
       state.metas={fecha,items};
     }
-    const cDoc = await getDoc(doc(db,NS,'categorias'));
     if (cDoc.exists()) {
       const cd = cDoc.data();
       if (Array.isArray(cd.catsGasto) && cd.catsGasto.length) state.catsGasto = cd.catsGasto;
       if (Array.isArray(cd.catsIngreso) && cd.catsIngreso.length) state.catsIngreso = cd.catsIngreso;
     }
-    const gSnap = await getDocs(query(collection(db,C_GASTOS), orderBy('fecha','desc')));
     state.gastos = gSnap.docs.map(d => ({id:d.id, ...d.data()}));
-    const iSnap = await getDocs(query(collection(db,C_INGRESOS), orderBy('fecha','desc')));
     state.ingresos = iSnap.docs.map(d => ({id:d.id, ...d.data()}));
-    const trSnap = await getDocs(query(collection(db,C_TRANSF), orderBy('fecha','desc')));
     state.transferencias = trSnap.docs.map(d => ({id:d.id, ...d.data()}));
-    const opSnap = await getDocs(query(collection(db,C_OPS), orderBy('fecha','asc')));
     const opsCrudas = opSnap.docs.map(d => ({id:d.id, ...d.data()}));
     state.stocksOps = opsCrudas.filter(o=>o&&typeof o.simbolo==='string'&&/^[A-Z][A-Z0-9.\-]{0,9}$/.test(o.simbolo)
         &&Number.isFinite(o.acciones)&&o.acciones>0&&(o.tipo==='compra'||o.tipo==='venta')
@@ -4963,7 +5001,18 @@ initPieInteraccion('res-pie-ingresos');
 actualizarOjo();
 marcarTemaActivo();
 
-if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
+if('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(()=>{});
+  // La app ahora se pinta desde la copia guardada en el aparato (arranque instantaneo) y
+  // la version fresca se baja por detras. Si la que acaba de bajar es distinta a la que
+  // estas viendo, el service worker avisa para poder recargar cuando convenga.
+  navigator.serviceWorker.addEventListener('message', e => {
+    if(e.data && e.data.tipo==='version-nueva') {
+      const el=document.getElementById('aviso-version');
+      if(el) el.hidden=false; else showToast('hay una version nueva — cierra y vuelve a abrir');
+    }
+  });
+}
 </script>
 </body>
 </html>
