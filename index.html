@@ -2268,12 +2268,14 @@ const c2   = n => Math.round(n*100)/100;              // corta el ruido de punto
 const cent = n => Math.round(n*100);                  // comparaciones exactas, en centavos
 // coleccion de tramos de rendimiento: un documento por tramo CERRADO de una cuenta de interes
 const C_REND = (typeof PFX === 'string' ? PFX : '') + 'rendimientos';
-// esta copia calcula el interes con tasa nominal anual (base 365, sin bandas ni retencion) y su
+// esta copia calcula el interes con tasa nominal anual (base 360 desde el 1-oct-2026; tramos viejos 365; sin bandas ni retencion) y su
 // calcCompoundAt recibe la tasa como numero. Los tramos de rendimiento guardan un MODELO
 // {tasa,tope,tasaExc,ret,dias} para poder recalcular cualquier periodo, asi que aqui se arma
 // ese modelo desde la tasa y se traduce al orden de argumentos de esta copia.
-function modeloComp(src, cfg) { return {dias:365, tasa:nFin(src[cfg.tasa]), tope:null, tasaExc:0, ret:0}; }
-function calcCompoundMod(base, fechaStr, ms, mod) { return calcCompoundAt(base, fechaStr, (mod && Number.isFinite(mod.tasa)) ? mod.tasa : 0, ms); }
+function modeloComp(src, cfg) { return {dias:360, tasa:nFin(src[cfg.tasa]), tope:null, tasaExc:0, ret:0}; }
+// los tramos guardados antes del 1-oct-2026 traen dias:365 y se recalculan asi (su base y saldoFin se
+// escribieron con esa formula); los nuevos y el abierto van sobre 360
+function calcCompoundMod(base, fechaStr, ms, mod) { return calcCompoundAt(base, fechaStr, (mod && Number.isFinite(mod.tasa)) ? mod.tasa : 0, ms, (mod && mod.dias === 365) ? 365 : 360); }
 // fecha REAL, no solo con forma de fecha: '2026-02-30' se normaliza a marzo y '2026-13-01' no existe
 const esFechaReal = f => { if (typeof f !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(f)) return false;
   const [y, m, d] = f.split('-').map(Number); const t = parseFechaLocal(f);
@@ -3768,15 +3770,16 @@ function derivarPosiciones() {
   Object.keys(pos).forEach(k=>{ pos[k].acciones=Math.max(0,Math.round(pos[k].acciones*1e8)/1e8); });
   state.posiciones=pos; // las cerradas (0 acciones) se conservan: su historia sigue en la grafica
 }
-function calcCompoundAt(base, fechaStr, tasaPct, ms) {
+function calcCompoundAt(base, fechaStr, tasaPct, ms, diasBase) {
   if(!base||!fechaStr) return base||0;
   // dias calendario COMPLETOS: Nu abona una vez al dia; con dias fraccionarios
   // la app inventaria rendimiento parcial el mismo dia de actualizar el saldo
   const dias=Math.max(0,Math.floor((ms-parseFechaLocal(fechaStr).getTime())/86400000));
-  // tasa nominal anual / 365 compuesta diario sobre el saldo acumulado
+  // tasa nominal anual / 360 compuesta diario sobre el saldo acumulado (la banca en Mexico
+  // calcula el interes sobre 360 dias; hasta el 1-oct-2026 aqui se dividia entre 365)
   // (modelo real de Nu: 13% nominal ~ 13.88% GAT efectiva; antes se usaba la
   // efectiva repartida, que daba ~$0.54/dia menos con $25k al 13%)
-  const dailyRate=(tasaPct||0)/100/365;
+  const dailyRate=(tasaPct||0)/100/(diasBase===365?365:360);
   return base*Math.pow(1+dailyRate,dias);
 }
 function calcNu1At(ms) { return calcCompoundAt(state.nuCajita1Base, state.nuCajita1Fecha, state.nuCajita1Tasa, ms); }
@@ -3789,7 +3792,7 @@ function calcNu2() {
   const saldo=calcNu2At(Date.now());
   return {saldo, rend:saldo-(state.nuCajita2Base||0)};
 }
-// (sin usar) paga interes diario igual que Nu: mismo modelo base+fecha+tasa nominal/365
+// (sin usar) paga interes diario igual que Nu: mismo modelo base+fecha+tasa nominal/360
 function calcRevSavingsAt(ms) { return calcCompoundAt(state.revSavingsBase, state.revSavingsFecha, state.revSavingsTasa, ms); }
 function calcRevSavings() {
   const saldo=calcRevSavingsAt(Date.now());
