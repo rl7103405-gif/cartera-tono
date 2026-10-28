@@ -96,3 +96,9 @@ Ver `README.md` para el paso a paso completo.
 ## Deudas con tarjeta (16/10/2026)
 
 Igual que en `mi-cartera` (su CLAUDE.md, sección "Deudas con tarjeta"): las tarjetas de crédito de esta copia sirven para "me deben"/"le pagué" (suben su deuda) y se apagan cuando el dinero entra; `txDinero` trata un movimiento con id ya aplicado como `ya-existe` (éxito, sin cobrar dos veces) y `yaAplicado()` repinta Deudas. Pruebas: `deudas-tarjeta.mjs` y `deudas-doble.mjs` en `Desktop\CARTERA\pruebas-sin-senal\`.
+
+## Cuentas en otra moneda (20/10/2026, traído de mi-cartera; revisado por code-reviewer, pentester y qa-tester)
+
+- Cuentas en AUD/USD/EUR/CNY que la persona agrega en Perfil, en `<NS>/cuentasX` (aparte de saldos). Un gasto o ingreso en otra moneda guarda `monto` YA EN PESOS al tipo del día + `montoOrig/moneda/tc/tcFecha`; los totales de siempre no cambian. Una cuenta `x_` nunca va en `plan.deltas`: va en `plan.fx`; la reversa al borrar sale del documento del servidor (`reversaX`). Tipo de cambio de Frankfurter una vez al día, solo si hay cuentas en otra moneda, en `<NS>/mercado.fx`. Las reglas (`cartera-casa/firestore.rules`) exigen que crear o borrar un movimiento `x_` mueva el saldo de esa cuenta en la misma operación: **desplegarlas antes de publicar**.
+- Detalle completo, reglas que no se rompen y pruebas: `mi-cartera/CLAUDE.md`, sección "Cuentas en otra moneda".
+- Propio de esta copia: el paso 8 de `aplicarConfigCuentas` reconoce las cuentas `x_` encendidas (si no, cada render regresaba la fuente a efectivo y el gasto se guardaba en pesos). Los botones nuevos usan `data-cx`, nunca `data-cta`. La transferencia en otra moneda valida la cuenta en pesos con SLOTS/CAPS como la normal.
