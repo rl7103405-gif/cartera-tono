@@ -30,19 +30,14 @@ En `index.html`, busca y reemplaza:
   `TU_API_KEY`, `TU_PROYECTO`, etc.
 - `const ALLOWED_EMAIL = 'TU_CORREO@ejemplo.com';` — pon el correo del paso 1.3.
 
-En `firestore.rules`, cambia `TU_CORREO@ejemplo.com` por ese mismo correo.
 
 > Si quieres, también puedes ajustar tus metas del año en `index.html`:
 > `const META_SAVINGS = 0, META_STOCKS = 0, META_FECHA = '2026-12-31'` (cuánto quieres tener
 > ahorrado e invertido para esa fecha).
 
-## 3. Publica las reglas de seguridad
+## 3. Reglas de seguridad
 
-Este paso es el que protege tus datos: sin él, cualquiera podría leerlos.
-
-1. En Firebase, ve a **Firestore Database → Reglas**.
-2. Borra lo que haya y pega el contenido completo de tu `firestore.rules` (ya con tu correo).
-3. Da **Publicar**.
+No se publican desde aquí: esta copia usa el proyecto compartido `mi-cartera-b43e0`, y sus reglas viven en `Desktop\CARTERA\cartera-casa\firestore.rules` (fuera de este repo; piden el uid y el correo de cada cuenta). Se despliegan SOLO desde ahí. Nunca publiques reglas desde esta carpeta: le quitarías el acceso a las demás carteras (17-nov-2026). Una cuenta nueva necesita su par (uid y correo) en ese archivo antes de poder entrar.
 
 ## 4. Sube la app a internet (GitHub Pages, gratis)
 

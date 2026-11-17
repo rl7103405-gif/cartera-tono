@@ -9,14 +9,13 @@ precargados.
 - **HTML/CSS/JS puro en un solo `index.html`.** Sin frameworks, sin build, sin npm.
 - **Firebase Firestore** (sincronización) y **Firebase Authentication** (email/password).
 - Se publica tal cual en GitHub Pages.
-- Archivos: `index.html`, `manifest.json`, `sw.js`, `icon-192.png`, `icon-512.png`,
-  `firestore.rules`.
+- Archivos: `index.html`, `manifest.json`, `sw.js`, `icon-192.png`, `icon-512.png`. Las reglas de Firestore no viven aquí: esta copia usa el proyecto compartido `mi-cartera-b43e0`, y sus reglas viven en `Desktop\CARTERA\cartera-casa\firestore.rules` (fuera de este repo; piden el uid y el correo de cada cuenta). Se despliegan SOLO desde ahí. Nunca publiques reglas desde esta carpeta: le quitarías el acceso a las demás carteras (17-nov-2026).
 
 ## Antes de usarla: 3 cosas que hay que personalizar
 
 1. `index.html` → `firebaseConfig`: los 6 valores del proyecto de Firebase propio.
 2. `index.html` → `ALLOWED_EMAIL`: el correo que puede entrar.
-3. `firestore.rules` → el mismo correo, y publicar las reglas en Firebase.
+3. Reglas: esta copia usa el proyecto compartido `mi-cartera-b43e0`, y sus reglas viven en `Desktop\CARTERA\cartera-casa\firestore.rules` (fuera de este repo; piden el uid y el correo de cada cuenta). Se despliegan SOLO desde ahí. Nunca publiques reglas desde esta carpeta: le quitarías el acceso a las demás carteras (17-nov-2026).
 
 Ver `README.md` para el paso a paso completo.
 
@@ -88,7 +87,7 @@ Ver `README.md` para el paso a paso completo.
 1. **Un solo commit por tanda de cambios** — GitHub Pages atasca su cola de deploys si se
    suben varios commits seguidos.
 2. Si cambias `sw.js`, **sube también la versión de `CACHE`** para invalidar el caché viejo.
-3. `ALLOWED_EMAIL` es solo un gate de UI: la seguridad real está en `firestore.rules`.
+3. `ALLOWED_EMAIL` es solo un gate de UI: la seguridad real está en `cartera-casa\firestore.rules`.
 4. Validar siempre lo que viene de Firestore (`Number.isFinite`, arrays, regex) — un dato
    corrupto no debe romper la app ni propagar `NaN` a los saldos.
 5. Escapar con `escapeHtml()` cualquier texto del usuario que se interpole en HTML.
